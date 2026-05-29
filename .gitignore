@@ -6,7 +6,9 @@ __pycache__
 LICENSE
 
 # Models
-qwen-*
+qwen-math-grpo*
+qwen-math-sft2/final/adapter_model.safetensors
+qwen-math-sft2/merged
 
 # Results
 results*
