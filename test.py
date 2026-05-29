@@ -3,23 +3,25 @@ import os
 from judger import Judger
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-MODEL_ID    = "Qwen/Qwen3-4B-Thinking-2507"
-GPU_ID      = "1"                    # CUDA_VISIBLE_DEVICES
+MODEL_ID      = "qwen-math-sft3/merged"
+TOKENIZER_ID  = "qwen-math-sft3/final"
+# GPU_ID      = "3"
 DATA_PATH   = "data/public.jsonl"
-OUTPUT_PATH = "results/starter_results.jsonl"
-MAX_TOKENS  = 81920
+OUTPUT_PATH      = "results/starter_results.jsonl"
+THINKING_PATH    = "results/thinking.jsonl"
+OUTPUT_TEXT_PATH = "results/thinking.txt"
+MAX_TOKENS  = 16384
 
-os.environ["CUDA_VISIBLE_DEVICES"] = GPU_ID
+# os.environ["CUDA_VISIBLE_DEVICES"] = GPU_ID
 
 import re
 import sys
 from pathlib import Path
-from typing import Optional
+from collections import Counter
 
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
 from tqdm import tqdm
-from vllm.config import ReasoningConfig
 
 
 data = [json.loads(line) for line in open(DATA_PATH)]
@@ -28,66 +30,103 @@ n_mcq  = sum(bool(d.get("options")) for d in data)
 n_free = sum(not d.get("options")   for d in data)
 print(f"Loaded {len(data)} questions  ({n_mcq} MCQ, {n_free} free-form)")
 
-# Preview one MCQ and one free-form item
-mcq_sample  = next(d for d in data if d.get("options"))
-free_sample = next(d for d in data if not d.get("options"))
-
-print("\n── MCQ sample ──")
-print(json.dumps(mcq_sample, indent=2))
-print("\n── Free-form sample ──")
-print(json.dumps(free_sample, indent=2))
-
+""" Accuracy = 60%
 SYSTEM_PROMPT_MATH = (
-    "You are a nobel prize winning mathematician. Solve the problem step-by-step. "
-    "Put your final answer inside \\boxed{}. "
-    "If the problem has multiple sub-answers, separate them by commas inside a single \\boxed{}, "
-    "e.g. \\boxed{3, 7}."
+    "You are a nobel prize winning mathematician tasked to solve math problems easy or difficult."
+    "You should answer the questions like a professional mathematician who is careful and meticulous in solving problems. "
+    "Formatting Instructions:\n"
+    "1. Do not round your final answer. Leave complicated answers unevaluated, e.g. leave 325*(1+325) as is instead of evaluating to 105950 or leave (1/2)^[(1999-1963)/31] as is.\n" 
+    "2. Prefer answering in decimal form and round only if necessary. For example these are some expected rounded answers [\"62.7777777777778\", \"335.927777777778\", \"604.67\"].\n"
+    "3. For questions that demand fractional answers like 5/8 output \\boxed{5/8} as it is and not \\boxed{frac{5}{8}}\n"
+    "4. For answers that include expressions, like 2x^2+3x+4 answer like the following 2*x^2+3*x+4 instead of 2x^2+3x+4\n"
+    "5. If the problem has multiple sub-answers, separate them by commas inside a single \\boxed{}, e.g. if and only if the answer is 3 and/or 7 then you will output \\boxed{3, 7}.\n"
+    "6. Never add the characters { } in the \\boxed{} answer\n"
+    "The most important thing is to put your final answer inside \\boxed{} without failure using the formatting instructions above."
+    "Only and only output one final \\boxed{} answer at the end with answers to all the parts of the question if there are any, or multiple answers for the same question if there are multiple. Do not output any other \\boxed{} that is not the final answer to the question. "
+)
+
+"""
+""" Accuracy = 63%
+    "You are a nobel prize winning mathematician tasked to solve math problems easy or difficult."
+    "You should answer the questions like a professional mathematician who is careful and meticulous in solving problems. "
+    "The most important thing is to put your final answer inside \\boxed{} without failure using the formatting instructions above."
+    "Follow the following instructions in given priority order"
+    "Formatting Instructions:\n"
+    "1. Put your final answer at the end inside \\boxed{}. You are NOT PERMITTED TO USE BOXED MORE THAN ONCE SO BE CAREFUL AND USE IT AT THE END."
+    "2. Never add the characters { } inside the \\boxed{} answer. The only allowed { } are for writting out the \\boxed{} answer.\n"
+    "3. Do not round your final answer. Leave complicated answers unevaluated, e.g. leave 325*(1+325) as is or leave (1/2)^[(1999-1963)/31] as is.\n" 
+    "4. Prefer answering in decimal form and round only if necessary. For example these are some expected rounded answers [\"62.7777777777778\", \"335.927777777778\", \"604.67\"].\n"
+    "5. For questions that demand fractional answers like 5/8 output 5/8 as it is and not frac{5}{8}\n"
+    "6. For answers that include algaebraic expressions, like 2x^2+3x+4 answer like the following 2*x^2+3*x+4 instead of 2x^2+3x+4\n"
+    "7. If the problem has multiple sub-answers, separate them by commas inside a single boxed, e.g. if and only if the answer is 3 and/or 7 then you will output 3, 7.\n"
+    "8. The formatting inside the boxed should not be in latek, so dont use stuff like {}"
+"""
+SYSTEM_PROMPT_MATH = (
+    "You are a nobel prize winning mathematician tasked to solve math problems easy or difficult."
+    "You should answer the questions like a professional mathematician who is careful and meticulous in solving problems. "
+    "The most important thing is to put your final answer inside \\boxed{} without failure using the formatting instructions above."
+    "Follow the following instructions in given priority order"
+    "Formatting Instructions:\n"
+    "1. Put your final answer at the end inside \\boxed{}. You are NOT PERMITTED TO USE BOXED MORE THAN ONCE SO BE CAREFUL AND USE IT AT THE END."
+    "2. Never add the characters { } inside the \\boxed{} answer. The only allowed { } are for writting out the \\boxed{} answer.\n"
+    "3. Do not round your final answer. Leave complicated answers unevaluated, e.g. leave 325*(1+325) as is or leave (1/2)^[(1999-1963)/31] as is.\n" 
+    "4. Prefer answering in decimal form and round only if necessary. For example these are some expected rounded answers [\"62.7777777777778\", \"335.927777777778\", \"604.67\"].\n"
+    "5. For questions that demand fractional answers like 5/8 output 5/8 as it is and not frac{5}{8}\n"
+    "6. For answers that include algaebraic expressions, like 2x^2+3x+4 answer like the following 2*x^2+3*x+4 instead of 2x^2+3x+4\n"
+    "7. If the problem has multiple sub-answers, separate them by commas inside a single boxed, e.g. if and only if the answer is 3 and/or 7 then you will output 3, 7.\n"
+    "8. The formatting inside the boxed should not be in latek, so dont use stuff like {}"
 )
 
 SYSTEM_PROMPT_MCQ = (
-    "You are a nobel prize winning mathematician."
-    "Read the problem and the answer choices below, then select the single best answer. "
-    "Output ONLY the letter of your chosen option inside \\boxed{}, e.g. \\boxed{C}."
+    "You are a nobel prize winning mathematician tasked to solve math problems easy or difficult."
+    "As you are an AI Model you should not fall into the common problems faced by AI models such as being overconfident in wrong answers or being misled by irrelevant information."
+    "You should answer the questions like a professional mathematician who is careful and meticulous in solving problems."
+    "Read the problem and the answer choices below, then select the single best answer from the options only."
+    "If your answer does not match any of the options, you should choose the option that is closest to your answer."
+    "For answers that include constants like pi or e, if none of the options match you can input the values of such constants (e.g. 3.14159 for pi) and choose the closest option."
+    "The most important thing is to put your final answer inside \\boxed{} without failure."
+    "Output ONLY THE LETTER, NOT VALUE of your chosen option inside \\boxed{}, e.g. \\boxed{C}."
 )
 
-
-def build_prompt(question: str, options: Optional[list]) -> tuple[str, str]:
-    """Return (system_prompt, user_prompt) for a question."""
-    if options:
-        labels    = [chr(65 + i) for i in range(len(options))]
-        opts_text = "\n".join(f"{lbl}. {opt.strip()}" for lbl, opt in zip(labels, options))
-        return SYSTEM_PROMPT_MCQ, f"{question}\n\nOptions:\n{opts_text}"
-    return SYSTEM_PROMPT_MATH, question
-
-
-# Verify with samples
-for label, item in [("MCQ", mcq_sample), ("Free-form", free_sample)]:
-    sys_p, usr_p = build_prompt(item["question"], item.get("options"))
-    print(f"── {label} user prompt (first 200 chars) ──")
-    print(usr_p[:200], "...\n")
-
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_ID)
 tokenizer.pad_token = tokenizer.eos_token
+
+
+def build_prompt(question, options=None):
+    if options:
+        letters = "ABCDEFGHIJ"
+        options_text = "\n".join(f"{letters[i]}. {opt}" for i, opt in enumerate(options))
+        user_content  = f"{question}\n\nOptions:\n{options_text}"
+        system_prompt = SYSTEM_PROMPT_MCQ
+    else:
+        user_content  = question
+        system_prompt = SYSTEM_PROMPT_MATH
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user",   "content": user_content},
+    ]
+    return tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=True,
+    )
 
 
 llm = LLM(
     model=MODEL_ID,
-    quantization="bitsandbytes",
-    load_format="bitsandbytes",
+    tokenizer=TOKENIZER_ID,
+    enforce_eager=True,
     enable_prefix_caching=True,
     gpu_memory_utilization=0.9,
-    max_model_len=MAX_TOKENS+2048,
+    max_model_len=MAX_TOKENS + 2048,
     trust_remote_code=True,
     max_num_seqs=96,
-    max_num_batched_tokens=16224,
-    reasoning_config=ReasoningConfig(
-        reasoning_start_str="<think>",
-        reasoning_end_str="I have to now answer based on my thinking</think>",
-    )
+    max_num_batched_tokens=16384,
 )
 
 sampling_params = SamplingParams(
-    # n=12,
     max_tokens=MAX_TOKENS,
     temperature=0.6,
     top_p=0.95,
@@ -95,38 +134,16 @@ sampling_params = SamplingParams(
     min_p=0,
     presence_penalty=0.0,
     repetition_penalty=1.0,
-    thinking_token_budget=1024
 )
 
 print("Model loaded.")
+NUM_INPUTS=100
+prompts = [build_prompt(d["question"], d.get("options")) for d in data[:NUM_INPUTS]]
 
-# Build prompts for first 5 entries
-# Build prompts for first 5 entries 
-NUM_INPUTS = 64
-responses = []
-
-
-prompts = []
-for item in data[:NUM_INPUTS]:
-    system, user = build_prompt(item["question"], item.get("options"))
-    prompt_text = tokenizer.apply_chat_template(
-        [{"role": "system", "content": system},
-        {"role": "user",   "content": user}],
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-    prompts.append(prompt_text)
-
-# Generate
 print(f"Generating responses for {len(prompts)} questions...")
-outputs = llm.generate(prompts, sampling_params=sampling_params)
+outputs = llm.generate(prompts, sampling_params)
 
-responses = [out.outputs[0].text.strip() for out in outputs]
 
-# Preview first 3
-# for i in range(min(3, len(responses))):
-#     print(f"\n── Response {i} (id={data[i].get('id')}) ──")
-#     print(responses[i][:800], "..." if len(responses[i]) > 800 else "")
 def extract_letter(text: str) -> str:
     m = re.search(r"\\boxed\{([A-Za-z])\}", text)
     if m:
@@ -139,30 +156,26 @@ def score_mcq(response: str, gold_letter: str) -> bool:
     return extract_letter(response) == gold_letter.strip().upper()
 
 
-# Load Judger for free-form scoring
 sys.path.insert(0, ".")
 judger = Judger(strict_extract=False)
 
-from collections import Counter
 
 def majority_vote(responses: list[str], is_mcq: bool, gold, judger) -> tuple[bool, str]:
-    """Extract answers from all candidates and return (correct, best_answer)."""
     if is_mcq:
         votes = [extract_letter(r) for r in responses]
-        votes = [v for v in votes if v]  # drop blanks
+        votes = [v for v in votes if v]
         best = Counter(votes).most_common(1)[0][0] if votes else ""
         return best == str(gold).strip().upper(), best
     else:
-        # For free-form, collect all extracted boxed answers and majority vote
         extracted = []
         for r in responses:
             m = re.search(r"\\boxed\{([^}]+)\}", r)
             if m:
                 extracted.append(m.group(1).strip())
-        
+
         if not extracted:
             return False, ""
-        
+
         best = Counter(extracted).most_common(1)[0][0]
         gold_list = gold if isinstance(gold, list) else [gold]
         try:
@@ -176,14 +189,18 @@ def majority_vote(responses: list[str], is_mcq: bool, gold, judger) -> tuple[boo
         return correct, best
 
 
-# Extract responses — now outputs[i].outputs has n=8 candidates
 all_responses = [
     [candidate.text.strip() for candidate in out.outputs]
     for out in outputs
 ]
 
+all_thinking = [
+    [getattr(candidate, "reasoning_content", None) or "" for candidate in out.outputs]
+    for out in outputs
+]
+
 results = []
-for item, candidates in tqdm(zip(data, all_responses), total=len(data), desc="Scoring"):
+for item, candidates, thinking in tqdm(zip(data[:NUM_INPUTS], all_responses, all_thinking), total=len(data), desc="Scoring"):
     is_mcq = bool(item.get("options"))
     gold   = item["answer"]
 
@@ -193,43 +210,20 @@ for item, candidates in tqdm(zip(data, all_responses), total=len(data), desc="Sc
         "id":       item.get("id"),
         "is_mcq":   is_mcq,
         "gold":     gold,
-        "response": best_answer,   # save the winning answer
+        "response": best_answer,
         "correct":  correct,
+        "thinking": thinking,
     })
-
-# results = []
-# for item, response in tqdm(zip(data, responses), total=len(data), desc="Scoring"):
-#     is_mcq = bool(item.get("options"))
-#     gold   = item["answer"]
-
-#     if is_mcq:
-#         correct = score_mcq(response, str(gold))
-#     else:
-#         gold_list = gold if isinstance(gold, list) else [gold]
-#         try:
-#             correct = judger.auto_judge(
-#                 pred=response,
-#                 gold=gold_list,
-#                 options=[[]] * len(gold_list),
-#             )
-#         except Exception:
-#             correct = False
-
-#     results.append({
-#         "id":       item.get("id"),
-#         "is_mcq":   is_mcq,
-#         "gold":     gold,
-#         "response": response,
-#         "correct":  correct,
-#     })
 
 print(f"Scoring complete. {len(results)} results.")
 
 mcq_res  = [r for r in results if r["is_mcq"]]
 free_res = [r for r in results if not r["is_mcq"]]
 
+
 def acc(subset):
     return sum(r["correct"] for r in subset) / len(subset) * 100 if subset else 0.0
+
 
 print("=" * 50)
 print("EVALUATION RESULTS")
@@ -239,7 +233,7 @@ print(f"  Free-form  : {sum(r['correct'] for r in free_res):4d} / {len(free_res)
 print(f"  Overall    : {sum(r['correct'] for r in results):4d} / {len(results):4d}  ({acc(results):.2f}%)")
 print("=" * 50)
 
-SAVE_EVAL = True   # Set to False when running on the private test set
+SAVE_EVAL = True
 
 out_path = Path(OUTPUT_PATH)
 out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -254,3 +248,24 @@ with open(out_path, "w") as f:
         f.write(json.dumps(record) + "\n")
 
 print(f"Saved {len(results)} records to {out_path}")
+
+think_path = Path(THINKING_PATH)
+think_path.parent.mkdir(parents=True, exist_ok=True)
+with open(think_path, "w") as f:
+    for r in results:
+        f.write(json.dumps({"id": r["id"], "thinking": r["thinking"]}) + "\n")
+print(f"Saved thinking to {think_path}")
+
+text_path = Path(OUTPUT_TEXT_PATH)
+text_path.parent.mkdir(parents=True, exist_ok=True)
+with open(text_path, "w") as f:
+    for i, r in enumerate(results):
+        item = data[i]
+        f.write("=" * 60 + "\n")
+        f.write(f"Q{i} ID: {r['id']}\n")
+        f.write(f"QUESTION:\n{item['question']}\n")
+        for j, (thinking, response) in enumerate(zip(r["thinking"], all_responses[i])):
+            prefix = f"\nCANDIDATE {j}" if len(r["thinking"]) > 1 else ""
+            f.write(f"{prefix}\nTHINKING:\n{thinking}\n")
+            f.write(f"\nMODEL OUTPUT:\n{response}\n")
+print(f"Saved text output to {text_path}")

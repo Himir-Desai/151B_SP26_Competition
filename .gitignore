@@ -1,7 +1,12 @@
 .claude
 .venv
 .vscode
-results
 data
 __pycache__
 LICENSE
+
+# Models
+qwen-*
+
+# Results
+results*
