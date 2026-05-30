@@ -15,8 +15,8 @@ import torch
 import yaml
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
-from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import SFTConfig, SFTTrainer
 
 # ── Load config ───────────────────────────────────────────────────────────────
 cfg_path = Path(__file__).parent / "config.yaml"
@@ -87,18 +87,31 @@ model.print_trainable_parameters()
 output_dir = model_cfg["output_dir"]
 Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-training_args = TrainingArguments(
+warmup_steps = max(1, int(
+    train_cfg["warmup_ratio"]
+    * train_cfg["num_train_epochs"]
+    * len(train_ds)
+    // (train_cfg["per_device_train_batch_size"] * train_cfg["gradient_accumulation_steps"])
+))
+
+sft_args = SFTConfig(
     output_dir=output_dir,
+    # data
+    dataset_text_field="text",
+    max_length=train_cfg["max_seq_length"],
+    packing=False,
+    # optimisation
     num_train_epochs=train_cfg["num_train_epochs"],
     per_device_train_batch_size=train_cfg["per_device_train_batch_size"],
     per_device_eval_batch_size=train_cfg["per_device_train_batch_size"],
     gradient_accumulation_steps=train_cfg["gradient_accumulation_steps"],
     learning_rate=train_cfg["learning_rate"],
     lr_scheduler_type=train_cfg["lr_scheduler_type"],
-    warmup_ratio=train_cfg["warmup_ratio"],
+    warmup_steps=warmup_steps,
     weight_decay=train_cfg["weight_decay"],
     bf16=train_cfg["bf16"],
     fp16=train_cfg["fp16"],
+    # logging / saving
     logging_steps=train_cfg["logging_steps"],
     save_strategy=train_cfg["save_strategy"],
     save_steps=train_cfg["save_steps"],
@@ -114,13 +127,10 @@ training_args = TrainingArguments(
 # ── Train ─────────────────────────────────────────────────────────────────────
 trainer = SFTTrainer(
     model=model,
-    tokenizer=tokenizer,
-    args=training_args,
+    processing_class=tokenizer,
+    args=sft_args,
     train_dataset=train_ds,
     eval_dataset=val_ds,
-    dataset_text_field="text",
-    max_seq_length=train_cfg["max_seq_length"],
-    packing=False,
 )
 
 print("Starting training...")

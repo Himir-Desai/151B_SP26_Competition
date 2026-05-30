@@ -52,7 +52,7 @@ rejection_sampling:
   # Cap on tokens spent inside <think>...</think>.
   # max_new_tokens is automatically set to thinking_budget + 512 in generate_data.py
   # so there is always room to write the boxed answer after thinking.
-  thinking_budget: 2048
+  thinking_budget: 4096
 
   # Sampling params for data generation
   temperature: 0.7
