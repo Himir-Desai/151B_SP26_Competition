@@ -1,0 +1,131 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  SFT Training Configuration
+#  Pipeline: generate_data.py → train.py → evaluate.py
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  model_id: "Qwen/Qwen3-4B-Thinking-2507"
+  output_dir: "sft_training/checkpoints"   # where trained adapters are saved
+  adapter_dir: "sft_training/checkpoints/adapter"  # path used by evaluate.py
+
+# ── Hardware ──────────────────────────────────────────────────────────────────
+hardware:
+  gpu_id: "0"                  # CUDA_VISIBLE_DEVICES
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  competition_path: "data/public.jsonl"
+
+  # External HuggingFace datasets to augment training
+  # Comment out any you don't want to use
+  external_datasets:
+    - "AI-MO/NuminaMath-CoT"           # competition math with chain-of-thought
+    - "hendrycks/competition_math"     # AMC/AIME/olympiad problems
+
+  # Max samples drawn from ALL external datasets combined (null = no limit)
+  max_external_samples: 5000
+
+  # Fraction of data held out for validation loss tracking
+  val_split: 0.05
+
+  # Where merged train/val files are written by generate_data.py
+  train_output: "sft_training/data/train.jsonl"
+  val_output:   "sft_training/data/val.jsonl"
+
+# ── Rejection Sampling (generate_data.py) ─────────────────────────────────────
+# KEY SPEED/QUALITY TRADEOFF: thinking_budget controls how long the model thinks.
+# Too low  → response clipped before \boxed{} → no correct samples collected.
+# Too high → generation is very slow.
+#
+# Recommended values:
+#   2048 → fast, good for quick hyperparameter sweeps
+#   4096 → balanced, default
+#   8192 → high quality, use for final data generation run
+rejection_sampling:
+  enabled: true
+
+  # Number of response candidates generated per competition question.
+  # Higher = more correct traces collected but slower. Start with 4, go up to 16.
+  num_samples_per_question: 1
+
+  # Cap on tokens spent inside <think>...</think>.
+  # max_new_tokens is automatically set to thinking_budget + 512 in generate_data.py
+  # so there is always room to write the boxed answer after thinking.
+  thinking_budget: 2048
+
+  # Sampling params for data generation
+  temperature: 0.7
+  top_p: 0.95
+  top_k: 20
+
+  # vLLM settings used during data generation
+  gpu_memory_utilization: 0.85
+  max_model_len: 8192        # must be >= thinking_budget + 512 + prompt length
+  max_num_seqs: 24
+
+# ── LoRA ──────────────────────────────────────────────────────────────────────
+# Increasing r improves capacity but slows training. Start with r=16.
+lora:
+  r: 16                      # rank — try 8 (fast) or 32 (high capacity)
+  lora_alpha: 32             # usually 2× r
+  lora_dropout: 0.05
+  bias: "none"
+  target_modules:            # which linear layers to adapt
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+# ── Training (train.py) ───────────────────────────────────────────────────────
+training:
+  num_train_epochs: 2
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8   # effective batch = batch_size × accum_steps
+
+  # Learning rate — most sensitive parameter.
+  # Too high (>5e-4) → loss spikes.  Too low (<1e-5) → no improvement.
+  # Suggested sweep: 2e-4 → 1e-4 → 5e-5
+  learning_rate: 2.0e-4
+
+  lr_scheduler_type: "cosine"      # cosine | linear | constant
+  warmup_ratio: 0.05               # fraction of steps used for LR warmup
+  weight_decay: 0.01
+
+  # Sequence length — single biggest lever for training speed.
+  # 4096 trains ~4× faster than 16384 but clips very long thinking traces.
+  # Set to thinking_budget + ~1024 to avoid wasting compute on padding.
+  max_seq_length: 6144
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true     # saves ~40% VRAM at small speed cost
+
+  logging_steps: 10
+  save_strategy: "epoch"           # epoch | steps
+  save_steps: 100                  # only used when save_strategy = "steps"
+  eval_strategy: "epoch"
+  eval_steps: 100                  # only used when eval_strategy = "steps"
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+
+  # Number of workers for the dataloader
+  dataloader_num_workers: 2
+
+# ── Evaluation (evaluate.py) ──────────────────────────────────────────────────
+evaluation:
+  data_path: "data/public.jsonl"
+  num_questions: 100               # set to null to eval all 1126
+  output_path: "results/sft_results.jsonl"
+  thinking_budget: 4096            # can differ from rejection_sampling budget
+  max_new_tokens: 4608             # thinking_budget + 512
+  temperature: 0.6
+  top_p: 0.95
+  top_k: 20
+  gpu_memory_utilization: 0.85
+  max_model_len: 16384
+  max_num_seqs: 8
