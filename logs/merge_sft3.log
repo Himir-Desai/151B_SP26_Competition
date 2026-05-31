@@ -1,12 +1,0 @@
-Skipping import of cpp extensions due to incompatible torch version. Please upgrade to torch >= 2.11.0 (found 2.10.0+cu128).
-[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
-Base model : sft-2-merged
-Adapter    : sft_training/checkpoints_3/adapter
-Output     : sft-3-merged
-Loading base model...
-Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]Loading weights:   0%|          | 1/398 [00:00<00:44,  8.90it/s]Loading weights:   6%|▋         | 25/398 [00:00<00:02, 131.05it/s]Loading weights:  11%|█         | 44/398 [00:00<00:02, 152.87it/s]Loading weights:  15%|█▌        | 60/398 [00:00<00:02, 147.00it/s]Loading weights:  20%|██        | 81/398 [00:00<00:01, 164.02it/s]Loading weights:  26%|██▌       | 102/398 [00:00<00:01, 168.56it/s]Loading weights:  31%|███▏      | 125/398 [00:00<00:01, 184.75it/s]Loading weights:  37%|███▋      | 146/398 [00:00<00:01, 189.76it/s]Loading weights:  42%|████▏     | 166/398 [00:00<00:01, 190.31it/s]Loading weights:  47%|████▋     | 186/398 [00:01<00:01, 180.48it/s]Loading weights:  52%|█████▏    | 205/398 [00:01<00:01, 176.08it/s]Loading weights:  56%|█████▋    | 224/398 [00:01<00:00, 176.00it/s]Loading weights:  62%|██████▏   | 245/398 [00:01<00:00, 178.54it/s]Loading weights:  66%|██████▋   | 264/398 [00:01<00:00, 179.04it/s]Loading weights:  71%|███████   | 282/398 [00:01<00:00, 172.06it/s]Loading weights:  76%|███████▌  | 301/398 [00:01<00:00, 165.81it/s]Loading weights:  81%|████████▏ | 324/398 [00:01<00:00, 181.14it/s]Loading weights:  87%|████████▋ | 345/398 [00:01<00:00, 186.71it/s]Loading weights:  92%|█████████▏| 365/398 [00:02<00:00, 186.26it/s]Loading weights:  96%|█████████▋| 384/398 [00:02<00:00, 185.46it/s]Loading weights: 100%|██████████| 398/398 [00:02<00:00, 174.52it/s]
-Loading adapter...
-Merging...
-Saving merged model → sft-3-merged
-Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:16<00:00, 16.91s/it]Writing model shards: 100%|██████████| 1/1 [00:16<00:00, 16.91s/it]
-Done. Use the merged model by pointing model_id to: sft-3-merged
