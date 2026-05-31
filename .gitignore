@@ -1,7 +1,6 @@
 .claude
 .venv
 results
-data
 __pycache__
 LICENSE
 sft-1-merged
