@@ -4,3 +4,7 @@ results
 data
 __pycache__
 LICENSE
+sft-1-merged
+sft-2-merged
+sft-3-merged
+sft_training/checkpoints*

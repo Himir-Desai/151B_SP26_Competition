@@ -63,7 +63,7 @@ print("Loading model...")
 model = AutoModelForCausalLM.from_pretrained(
     model_cfg["model_id"],
     trust_remote_code=True,
-    torch_dtype=torch.bfloat16,
+    dtype=torch.bfloat16,
     device_map="auto",
 )
 
@@ -120,6 +120,7 @@ sft_args = SFTConfig(
     load_best_model_at_end=train_cfg["load_best_model_at_end"],
     metric_for_best_model=train_cfg["metric_for_best_model"],
     dataloader_num_workers=train_cfg["dataloader_num_workers"],
+    torch_compile=train_cfg.get("torch_compile", False),
     report_to="none",
     remove_unused_columns=False,
 )
