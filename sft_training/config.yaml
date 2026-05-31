@@ -5,17 +5,20 @@
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
-  model_id: "Qwen/Qwen3-4B-Thinking-2507"
-  output_dir: "sft_training/checkpoints"   # where trained adapters are saved
-  adapter_dir: "sft_training/checkpoints/adapter"  # path used by evaluate.py
+  model_id: "sft-3-merged"                 # iterative SFT: generate data + train from SFT-3
+  output_dir: "sft_training/checkpoints_4"
+  adapter_dir: "sft_training/checkpoints_4/adapter"
 
 # ── Hardware ──────────────────────────────────────────────────────────────────
 hardware:
-  gpu_id: "0"                  # CUDA_VISIBLE_DEVICES
+  gpu_id: "5"                  # CUDA_VISIBLE_DEVICES
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 data:
   competition_path: "data/public.jsonl"
+
+  # Skip the first N questions (reserved for evaluation — do not train on them)
+  competition_skip: 100
 
   # External HuggingFace datasets to augment training
   # Comment out any you don't want to use
@@ -46,23 +49,30 @@ rejection_sampling:
   enabled: true
 
   # Number of response candidates generated per competition question.
-  # Higher = more correct traces collected but slower. Start with 4, go up to 16.
-  num_samples_per_question: 1
+  # Higher = more correct traces collected but slower. 8 is a good balance.
+  num_samples_per_question: 8
 
-  # Cap on tokens spent inside <think>...</think>.
-  # max_new_tokens is automatically set to thinking_budget + 512 in generate_data.py
-  # so there is always room to write the boxed answer after thinking.
+  # Cap on tokens spent inside <think>...</think> during data generation only.
+  # Keeps generation fast; starter.py uses uncapped inference (thinking_budget=null).
+  # max_new_tokens is automatically set to thinking_budget + 512 in generate_data.py.
   thinking_budget: 4096
 
-  # Sampling params for data generation
-  temperature: 0.7
+  # Sampling params — match starter.py exactly
+  temperature: 0.6
   top_p: 0.95
   top_k: 20
 
   # vLLM settings used during data generation
-  gpu_memory_utilization: 0.85
-  max_model_len: 8192        # must be >= thinking_budget + 512 + prompt length
-  max_num_seqs: 24
+  # Data parallel: N independent single-GPU instances, each handles 1/N of questions.
+  # Much faster than tensor parallel for small models (no all-reduce overhead).
+  # GPUs 3,5,6,7 are free; set to fewer if some are busy.
+  gpu_ids: "3,5,6,7"           # one GPU per worker (comma-separated)
+  tensor_parallel_size: 1      # keep at 1 — TP hurts small models
+  num_data_parallel: 4         # number of worker processes to spawn
+  gpu_memory_utilization: 0.87
+  max_model_len: 8192
+  max_num_batched_tokens: 32768
+  max_num_seqs: 256
 
 # ── LoRA ──────────────────────────────────────────────────────────────────────
 # Increasing r improves capacity but slows training. Start with r=16.
@@ -82,10 +92,10 @@ lora:
 
 # ── Training (train.py) ───────────────────────────────────────────────────────
 training:
-  num_train_epochs: 2
+  num_train_epochs: 1
 
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 8   # effective batch = batch_size × accum_steps
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4   # effective batch = batch_size × accum_steps
 
   # Learning rate — most sensitive parameter.
   # Too high (>5e-4) → loss spikes.  Too low (<1e-5) → no improvement.
@@ -114,18 +124,22 @@ training:
   metric_for_best_model: "eval_loss"
 
   # Number of workers for the dataloader
-  dataloader_num_workers: 2
+  dataloader_num_workers: 4
+
+  # torch.compile disabled — conflicts with PyTorch 2.10 TF32 API
+  torch_compile: false
 
 # ── Evaluation (evaluate.py) ──────────────────────────────────────────────────
 evaluation:
   data_path: "data/public.jsonl"
   num_questions: 100               # set to null to eval all 1126
   output_path: "results/sft_results.jsonl"
-  thinking_budget: 4096            # can differ from rejection_sampling budget
-  max_new_tokens: 4608             # thinking_budget + 512
+  # No thinking_budget — matches starter.py exactly (uncapped inference)
+  max_new_tokens: 32768
   temperature: 0.6
   top_p: 0.95
   top_k: 20
+  min_p: 0.0
   gpu_memory_utilization: 0.85
-  max_model_len: 16384
-  max_num_seqs: 8
+  max_model_len: 32768
+  max_num_seqs: 192
