@@ -1,9 +1,16 @@
 .claude
 .venv
 results
+results_base
+results_sft3
+results_sft4
+results_sid
 __pycache__
 LICENSE
 sft-1-merged
 sft-2-merged
 sft-3-merged
+sft_4_merged
 sft_training/checkpoints*
+starte2.py
+CLAUDE.md
