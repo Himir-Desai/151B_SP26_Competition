@@ -5,13 +5,13 @@
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
-  model_id: "sft-3-merged"                 # iterative SFT: generate data + train from SFT-3
+  model_id: "darthsid12/sft3"                 # iterative SFT: generate data + train from SFT-3
   output_dir: "sft_training/checkpoints_4"
   adapter_dir: "sft_training/checkpoints_4/adapter"
 
 # ── Hardware ──────────────────────────────────────────────────────────────────
 hardware:
-  gpu_id: "3"                  # CUDA_VISIBLE_DEVICES
+  gpu_id: "1"                  # CUDA_VISIBLE_DEVICES
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 data:
@@ -71,8 +71,8 @@ rejection_sampling:
   num_data_parallel: 4         # number of worker processes to spawn
   gpu_memory_utilization: 0.87
   max_model_len: 8192
-  max_num_batched_tokens: 32768
-  max_num_seqs: 256
+  max_num_batched_tokens: 524288
+  max_num_seqs: 512
 
 # ── LoRA ──────────────────────────────────────────────────────────────────────
 # Increasing r improves capacity but slows training. Start with r=16.
@@ -94,7 +94,7 @@ lora:
 training:
   num_train_epochs: 1
 
-  per_device_train_batch_size: 2
+  per_device_train_batch_size: 8
   gradient_accumulation_steps: 4   # effective batch = batch_size × accum_steps
 
   # Learning rate — most sensitive parameter.
@@ -109,7 +109,9 @@ training:
   # Sequence length — single biggest lever for training speed.
   # 4096 trains ~4× faster than 16384 but clips very long thinking traces.
   # Set to thinking_budget + ~1024 to avoid wasting compute on padding.
-  max_seq_length: 6144
+  max_seq_length: 4096
+
+  packing: false
 
   bf16: true
   fp16: false

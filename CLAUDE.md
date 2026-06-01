@@ -17,6 +17,10 @@ CSE 151B competition: improve accuracy of Qwen3-4B-Thinking-2507 on a mixed math
 .venv/bin/python sft_training/train.py            # LoRA fine-tuning (~30-60min)
 .venv/bin/python sft_training/evaluate.py         # eval with LoRA adapter (no merge needed)
 
+# GRPO pipeline (no data generation step — rollouts sampled on-the-fly)
+.venv/bin/python grpo_training/train.py           # GRPO LoRA training on SFT-3 (~1-3h depending on max_completion_length)
+.venv/bin/python grpo_training/evaluate.py        # eval with GRPO LoRA adapter
+
 # Merge LoRA adapter into base model for deployment
 .venv/bin/python merge_adapter.py
 .venv/bin/python merge_adapter.py --adapter sft_training/checkpoints/adapter --output sft-2-merged

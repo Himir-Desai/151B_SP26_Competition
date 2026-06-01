@@ -64,7 +64,8 @@ model = AutoModelForCausalLM.from_pretrained(
     model_cfg["model_id"],
     trust_remote_code=True,
     dtype=torch.bfloat16,
-    device_map="auto",
+    attn_implementation="sdpa",
+    device_map={"": 0},
 )
 
 if train_cfg["gradient_checkpointing"]:
@@ -99,7 +100,7 @@ sft_args = SFTConfig(
     # data
     dataset_text_field="text",
     max_length=train_cfg["max_seq_length"],
-    packing=False,
+    packing=train_cfg.get("packing", False),
     # optimisation
     num_train_epochs=train_cfg["num_train_epochs"],
     per_device_train_batch_size=train_cfg["per_device_train_batch_size"],
