@@ -1,4 +1,4 @@
-# CSE 151B/251B Spring 2026 — Math Reasoning Competition
+# CSE 151B/251B Spring 2026 — Mathematical Reasoning Competition
 **Team: Clanker Bashers**
 
 ## Hardware
